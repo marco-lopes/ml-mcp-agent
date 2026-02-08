@@ -22,6 +22,8 @@ python examples/train_and_deploy.py                # Train + deploy flow
 python examples/kaggle_download_example.py         # Dataset download only
 ```
 
+Kaggle credentials must be configured via `KAGGLE_KEY` env var or `.env` file — never hardcode tokens in source files.
+
 There is no formal test suite, build system, or linter configured. The `tests/` directory exists but is empty.
 
 ## Architecture
@@ -54,7 +56,19 @@ Agent (orchestrator) → spawns subprocess → MCP Server (FastMCP)
 ## Key Patterns
 
 - All MCP tool functions are `async` (FastMCP requirement) even though current I/O is synchronous
-- Servers maintain both in-memory registries and disk-persisted JSON metadata
+- Servers maintain both in-memory registries and disk-persisted JSON metadata; `active_models` is capped at 50 entries with automatic eviction of the oldest
 - The orchestrator stops the pipeline early if model accuracy falls below a configurable `min_accuracy` threshold
 - Kaggle credentials can be set via `KAGGLE_KEY` env var, `.env` file, or `~/.kaggle/kaggle.json`
 - Supported sklearn models are registered in `CLASSIFICATION_MODELS` and `REGRESSION_MODELS` dicts in `training_server/models.py`
+
+## Common Pitfalls
+
+When modifying this codebase, watch out for these issues that were previously found and fixed:
+
+- **Metrics key alignment**: The training server validation response uses `"metrics"` as the key. The orchestrator reads `validation_result.get("metrics", {}).get("accuracy", 0)`. Changing either side without the other breaks the accuracy threshold check.
+- **target_column propagation**: `validate_model()` requires `target_column` as a parameter. It must be passed through the entire chain: `MLAgent.execute_pipeline()` → `orchestrator.train_and_deploy()` → `TrainingClient.validate_model()` → training server.
+- **Model file extension**: Models are saved as `.joblib` (via `models.py`). Any path construction in the orchestrator or elsewhere must use `.joblib`, not `.pkl`.
+- **Label encoding in validate()**: `MLModel.validate()` encodes `y_val` and uses raw `model.predict()` (which returns encoded values). Do not call `self.predict()` here — that method applies `inverse_transform`, causing a double-encoding mismatch.
+- **Kaggle sort_by validation**: The `search_datasets` tool validates `sort_by` against `ALLOWED_SORT_OPTIONS` (`hottest`, `votes`, `updated`, `active`). New sort options must be added to this whitelist.
+- **Path traversal protection**: `download_dataset` restricts `output_dir` to paths under the user's home directory or `/tmp`.
+- **MCP client error handling**: `call_tool()` catches `BrokenPipeError`/`IOError` on stdin/stdout and `JSONDecodeError` on responses. If the server crashes, the client returns an error dict instead of raising.
