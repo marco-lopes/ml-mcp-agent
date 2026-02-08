@@ -34,6 +34,16 @@ MODELS_DIR.mkdir(exist_ok=True)
 # In-memory storage for model metadata and instances
 models_registry: dict[str, dict[str, Any]] = {}
 active_models: dict[str, MLModel] = {}
+MAX_ACTIVE_MODELS = 50
+
+
+def _register_active_model(model_id: str, ml_model: MLModel) -> None:
+    """Register a model in active_models, evicting oldest if at capacity."""
+    if len(active_models) >= MAX_ACTIVE_MODELS:
+        oldest_key = next(iter(active_models))
+        del active_models[oldest_key]
+        logger.info(f"Evicted oldest model from cache: {oldest_key}")
+    active_models[model_id] = ml_model
 
 
 def save_model_metadata(model_id: str, metadata: dict[str, Any]) -> None:
@@ -88,10 +98,17 @@ async def train_model(
     """
     try:
         logger.info(f"Training model: {model_name} ({model_type})")
-        
+
+        # Validate dataset path
+        if not Path(dataset_path).is_file():
+            return json.dumps({
+                "success": False,
+                "error": f"Dataset file not found: {dataset_path}",
+            })
+
         # Generate model ID
         model_id = f"{model_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-        
+
         # Load dataset
         X_train, X_test, y_train, y_test, feature_names, target_name = load_dataset(
             dataset_path,
@@ -126,7 +143,7 @@ async def train_model(
         ml_model.save(str(model_path))
         
         # Store in active models
-        active_models[model_id] = ml_model
+        _register_active_model(model_id, ml_model)
         
         # Get feature importance if available
         feature_importance = ml_model.get_feature_importance()
@@ -206,7 +223,7 @@ async def validate_model(
             
             model_path = metadata["model_path"]
             ml_model = MLModel.load(model_path)
-            active_models[model_id] = ml_model
+            _register_active_model(model_id, ml_model)
         
         # Load validation data
         import pandas as pd
@@ -227,7 +244,7 @@ async def validate_model(
         result = {
             "success": True,
             "model_id": model_id,
-            "validation_metrics": val_metrics,
+            "metrics": val_metrics,
             "validation_samples": len(X_val),
         }
         
@@ -388,7 +405,7 @@ async def load_model(model_path: str) -> str:
         model_id = f"loaded_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
         
         # Store in active models
-        active_models[model_id] = ml_model
+        _register_active_model(model_id, ml_model)
         
         # Create basic metadata
         metadata = {
@@ -445,7 +462,7 @@ async def predict(model_id: str, features: list[list[float]]) -> str:
             
             model_path = metadata["model_path"]
             ml_model = MLModel.load(model_path)
-            active_models[model_id] = ml_model
+            _register_active_model(model_id, ml_model)
         
         # Make predictions
         import numpy as np

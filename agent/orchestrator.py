@@ -76,6 +76,7 @@ class MLPipelineOrchestrator:
         dataset_path: str,
         hyperparameters: dict[str, Any],
         validation_dataset_path: str,
+        target_column: str = "target",
         environment: str = "staging",
         min_accuracy: float = 0.85,
     ) -> dict[str, Any]:
@@ -132,6 +133,7 @@ class MLPipelineOrchestrator:
             validation_result = self.training_client.validate_model(
                 model_id=model_id,
                 validation_dataset_path=validation_dataset_path,
+                target_column=target_column,
             )
             
             if not validation_result.get("success"):
@@ -156,7 +158,7 @@ class MLPipelineOrchestrator:
             
             # Step 3: Save model
             logger.info("Step 3: Saving model...")
-            model_path = f"/tmp/ml_models/{model_id}.pkl"
+            model_path = f"/tmp/ml_models/{model_id}.joblib"
             save_result = self.training_client.save_model(
                 model_id=model_id,
                 output_path=model_path,

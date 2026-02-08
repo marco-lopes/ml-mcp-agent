@@ -34,13 +34,14 @@ class MCPClient:
         """Start the MCP server process."""
         try:
             logger.info(f"Starting {self.server_name}...")
-            self.process = subprocess.Popen(
+            process = subprocess.Popen(
                 ["python3", self.server_script],
                 stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 text=True,
             )
+            self.process = process
             logger.info(f"{self.server_name} started successfully")
             return True
         except Exception as e:
@@ -78,37 +79,48 @@ class MCPClient:
             # Create JSON-RPC request
             request = {
                 "jsonrpc": "2.0",
-                "method": f"tools/call",
+                "method": "tools/call",
                 "params": {
                     "name": tool_name,
                     "arguments": kwargs,
                 },
                 "id": 1,
             }
-            
+
             # Send request to server
-            request_json = json.dumps(request) + "\n"
-            self.process.stdin.write(request_json)
-            self.process.stdin.flush()
-            
+            try:
+                request_json = json.dumps(request) + "\n"
+                self.process.stdin.write(request_json)
+                self.process.stdin.flush()
+            except (BrokenPipeError, IOError) as e:
+                logger.error(f"Communication error with {self.server_name}: {e}")
+                return {"error": f"Communication error with {self.server_name}: server may have crashed"}
+
             # Read response from server
             response_line = self.process.stdout.readline()
-            if response_line:
+            if not response_line:
+                return {"error": f"No response from {self.server_name}: server may have terminated"}
+
+            try:
                 response = json.loads(response_line)
-                if "result" in response:
-                    # Parse the result if it's a JSON string
-                    result = response["result"]
-                    if isinstance(result, str):
-                        try:
-                            return json.loads(result)
-                        except json.JSONDecodeError:
-                            return {"result": result}
-                    return result
-                elif "error" in response:
-                    return {"error": response["error"]}
-            
+            except json.JSONDecodeError as e:
+                logger.error(f"Invalid JSON from {self.server_name}: {response_line}")
+                return {"error": f"Invalid JSON response from {self.server_name}"}
+
+            if "result" in response:
+                # Parse the result if it's a JSON string
+                result = response["result"]
+                if isinstance(result, str):
+                    try:
+                        return json.loads(result)
+                    except json.JSONDecodeError:
+                        return {"result": result}
+                return result
+            elif "error" in response:
+                return {"error": response["error"]}
+
             return {"error": "No response from server"}
-            
+
         except Exception as e:
             logger.error(f"Error calling tool {tool_name}: {str(e)}")
             return {"error": str(e)}
@@ -143,12 +155,14 @@ class TrainingClient(MCPClient):
         self,
         model_id: str,
         validation_dataset_path: str,
+        target_column: str = "",
     ) -> dict[str, Any]:
         """Validate a trained model."""
         return self.call_tool(
             "validate_model",
             model_id=model_id,
             validation_dataset_path=validation_dataset_path,
+            target_column=target_column,
         )
     
     def get_model_metrics(self, model_id: str) -> dict[str, Any]:

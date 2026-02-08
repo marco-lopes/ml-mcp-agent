@@ -12,6 +12,9 @@ import sys
 from pathlib import Path
 from typing import Any
 
+# Ensure agent directory is on the path for sibling imports
+sys.path.insert(0, str(Path(__file__).parent))
+
 from orchestrator import MLPipelineOrchestrator
 
 # Configure logging
@@ -63,27 +66,29 @@ class MLAgent:
         dataset_path: str,
         hyperparameters: dict[str, Any],
         validation_dataset_path: str,
+        target_column: str = "target",
         environment: str = "staging",
         min_accuracy: float = 0.85,
     ) -> dict[str, Any]:
         """
         Execute a complete ML pipeline.
-        
+
         Args:
             model_name: Name for the model
             model_type: Type of model
             dataset_path: Path to training dataset
             hyperparameters: Model hyperparameters
             validation_dataset_path: Path to validation dataset
+            target_column: Name of the target column
             environment: Deployment environment
             min_accuracy: Minimum accuracy threshold
-        
+
         Returns:
             Pipeline execution results
         """
         if not self.running:
             return {"error": "Agent is not running"}
-        
+
         logger.info(f"Executing pipeline for model: {model_name}")
         return self.orchestrator.train_and_deploy(
             model_name=model_name,
@@ -91,6 +96,7 @@ class MLAgent:
             dataset_path=dataset_path,
             hyperparameters=hyperparameters,
             validation_dataset_path=validation_dataset_path,
+            target_column=target_column,
             environment=environment,
             min_accuracy=min_accuracy,
         )

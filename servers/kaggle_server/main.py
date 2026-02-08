@@ -96,6 +96,9 @@ def save_dataset_metadata(dataset_id: str, metadata: dict[str, Any]) -> None:
     logger.info(f"Dataset metadata saved: {dataset_id}")
 
 
+ALLOWED_SORT_OPTIONS = {"hottest", "votes", "updated", "active"}
+
+
 @mcp.tool()
 async def search_datasets(
     query: str,
@@ -104,24 +107,30 @@ async def search_datasets(
 ) -> str:
     """
     Search for datasets on Kaggle.
-    
+
     Args:
         query: Search query term
         max_results: Maximum number of results to return (default: 10)
         sort_by: Sort order - 'hottest', 'votes', 'updated', 'active' (default: 'hottest')
-    
+
     Returns:
         JSON string with list of datasets
     """
     try:
         logger.info(f"Searching datasets with query: {query}")
-        
+
         if not check_kaggle_credentials():
             return json.dumps({
                 "success": False,
                 "error": "Kaggle credentials not configured. Please set KAGGLE_KEY environment variable or configure ~/.kaggle/kaggle.json",
             })
-        
+
+        if sort_by not in ALLOWED_SORT_OPTIONS:
+            return json.dumps({
+                "success": False,
+                "error": f"Invalid sort_by option '{sort_by}'. Allowed: {', '.join(ALLOWED_SORT_OPTIONS)}",
+            })
+
         # Use kaggle CLI for search (kagglehub doesn't have search functionality)
         command = ["datasets", "list", "-s", query, "--sort-by", sort_by, "--max-size", str(max_results)]
         success, output = run_kaggle_command(command)
@@ -133,27 +142,38 @@ async def search_datasets(
             })
         
         # Parse the output (CSV format)
-        lines = output.strip().split('\n')
-        if len(lines) < 2:
+        import csv
+        import io
+
+        lines = output.strip()
+        if not lines or '\n' not in lines:
             return json.dumps({
                 "success": True,
                 "total_results": 0,
                 "datasets": [],
                 "message": "No datasets found",
             })
-        
-        # Skip header line
+
         datasets = []
-        for line in lines[1:]:
-            parts = line.split(',')
-            if len(parts) >= 5:
+        reader = csv.reader(io.StringIO(lines))
+        header = next(reader, None)
+        if not header:
+            return json.dumps({
+                "success": True,
+                "total_results": 0,
+                "datasets": [],
+                "message": "No datasets found",
+            })
+
+        for row in reader:
+            if len(row) >= 4:
                 dataset_info = {
-                    "ref": parts[0].strip(),
-                    "title": parts[1].strip(),
-                    "size": parts[2].strip(),
-                    "last_updated": parts[3].strip(),
-                    "download_count": parts[4].strip() if len(parts) > 4 else "N/A",
-                    "vote_count": parts[5].strip() if len(parts) > 5 else "N/A",
+                    "ref": row[0].strip(),
+                    "title": row[1].strip(),
+                    "size": row[2].strip(),
+                    "last_updated": row[3].strip(),
+                    "download_count": row[4].strip() if len(row) > 4 else "N/A",
+                    "vote_count": row[5].strip() if len(row) > 5 else "N/A",
                 }
                 datasets.append(dataset_info)
         
@@ -218,7 +238,16 @@ async def download_dataset(
         # If user specified output_dir, copy files there
         if output_dir:
             import shutil
-            output_path = Path(output_dir)
+            output_path = Path(output_dir).resolve()
+
+            # Prevent path traversal: only allow directories under home or /tmp
+            allowed_bases = [Path.home(), Path("/tmp")]
+            if not any(output_path == base or base in output_path.parents for base in allowed_bases):
+                return json.dumps({
+                    "success": False,
+                    "error": f"Output directory must be under home directory or /tmp",
+                })
+
             output_path.mkdir(parents=True, exist_ok=True)
             
             # Copy downloaded files to specified directory

@@ -179,29 +179,30 @@ class MLModel:
     def validate(self, X_val: np.ndarray, y_val: np.ndarray) -> Dict[str, Any]:
         """
         Validate the model.
-        
+
         Args:
             X_val: Validation features
             y_val: Validation labels
-        
+
         Returns:
             Validation metrics
         """
         logger.info("Validating model...")
-        
+
+        # Scale features if scaler was used during training
+        if self.scaler is not None:
+            X_val = self.scaler.transform(X_val)
+
         # Encode validation labels if encoder was used
         if self.label_encoder is not None:
             y_val = self.label_encoder.transform(y_val)
-        
-        y_pred = self.predict(X_val)
-        
-        # Re-encode predictions for metric calculation
-        if self.label_encoder is not None:
-            y_pred = self.label_encoder.transform(y_pred)
-        
+
+        # Use raw model predictions (already encoded) to match y_val encoding
+        y_pred = self.model.predict(X_val)
+
         metrics = self._calculate_metrics(y_val, y_pred, prefix="val_")
         logger.info(f"Validation completed: {metrics}")
-        
+
         return metrics
     
     def _calculate_metrics(

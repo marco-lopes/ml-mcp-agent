@@ -11,6 +11,8 @@ import os
 import sys
 from pathlib import Path
 
+from dotenv import load_dotenv
+
 # Add server directory to path
 sys.path.insert(0, str(Path(__file__).parent.parent / "servers" / "training_server"))
 
@@ -37,8 +39,11 @@ def print_metrics(metrics: dict, title: str):
 def main():
     """Main training pipeline."""
     
-    # Configure Kaggle token
-    os.environ["KAGGLE_KEY"] = "KAGGLE_KEY_0f4a6d345afafa670027ce2c7be91807"
+    # Load Kaggle credentials from .env file
+    load_dotenv()
+    if not os.getenv("KAGGLE_KEY"):
+        print("Error: KAGGLE_KEY not found. Set it in .env file or environment.")
+        sys.exit(1)
     
     print_section("MACHINE LEARNING TRAINING PIPELINE")
     print("This example demonstrates:")
