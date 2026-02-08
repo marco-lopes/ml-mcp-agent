@@ -1,0 +1,6 @@
+mcp>=0.1.0
+fastmcp>=0.1.0
+pydantic>=2.0.0
+python-dotenv>=1.0.0
+kaggle>=1.6.0
+kagglehub>=0.3.0
